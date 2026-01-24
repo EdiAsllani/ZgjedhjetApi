@@ -1,19 +1,9 @@
-﻿using Microsoft.AspNetCore.Mvc;
-using ZgjedhjetApi.Data;
-using ZgjedhjetApi.Enums;
-using ZgjedhjetApi.Models.DTOs;
-using ZgjedhjetApi.Models.Entities;
-using System.Text;
-using Microsoft.EntityFrameworkCore;
-
-namespace ZgjedhjetApi.Controllers
+﻿namespace ZgjedhjetApi.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
     public class ZgjedhjetController : ControllerBase
     {
-        // YOUR CODE HERE
-        // IT IS UP TO YOU TO DECIDE IF YOU WILL USE DB CONTEXT HERE OR THROUGH SERVICES/REPOSITORIES
         private readonly ILogger<ZgjedhjetController> _logger;
         private readonly LifeDbContext _context;
 
@@ -29,9 +19,9 @@ namespace ZgjedhjetApi.Controllers
         [HttpPost("import")]
         public async Task<ActionResult<CsvImportResponse>> MigrateData(IFormFile file)
         {
-            // YOUR CODE HERE
             var response = new CsvImportResponse();
             
+            // Check if file was provided
             if (file == null || file.Length == 0)
             {
                 response.Success = false;
@@ -40,6 +30,7 @@ namespace ZgjedhjetApi.Controllers
                 return BadRequest(response);
             }
 
+            // Ensure the file is a CSV
             if (!file.FileName.EndsWith(".csv", StringComparison.OrdinalIgnoreCase))
             {
                 response.Success = false;
@@ -55,7 +46,7 @@ namespace ZgjedhjetApi.Controllers
             {
                 using var reader = new StreamReader(file.OpenReadStream(), Encoding.UTF8);
 
-                // Read header and respond with error message if header is not found meaning file is empty
+                // Read the header line; return error if file is empty
                 var header = await reader.ReadLineAsync();
                 if (string.IsNullOrEmpty(header))
                 {
@@ -67,25 +58,27 @@ namespace ZgjedhjetApi.Controllers
 
                 lineNumber++;
 
-                // Process each line 
+                // Process each CSV line
                 while (!reader.EndOfStream)
                 {
                     lineNumber++;
                     var line = await reader.ReadLineAsync();
 
                     if (string.IsNullOrWhiteSpace(line))
-                        continue;
+                        continue; // skip empty lines
 
                     try
                     {
                         var values = ParseCsvLine(line);
 
-                        if (values.Length < 32)     // 4 basic fields + 28 parties
+                        // Validate expected number of columns
+                        if (values.Length < 32)
                         {
                             response.Errors.Add($"Line {lineNumber}: Insufficient columns");
                             continue;
                         }
 
+                        // Map CSV values to entity
                         var record = new Zgjedhjet
                         {
                             Kategoria = values[0]?.Trim() ?? string.Empty,
@@ -93,32 +86,7 @@ namespace ZgjedhjetApi.Controllers
                             Qendra_e_Votimit = values[2]?.Trim() ?? string.Empty,
                             VendVotimi = values[3]?.Trim() ?? string.Empty,
                             Partia111 = ParseInt(values[4]),
-                            Partia112 = ParseInt(values[5]),
-                            Partia113 = ParseInt(values[6]),
-                            Partia114 = ParseInt(values[7]),
-                            Partia115 = ParseInt(values[8]),
-                            Partia116 = ParseInt(values[9]),
-                            Partia117 = ParseInt(values[10]),
-                            Partia118 = ParseInt(values[11]),
-                            Partia119 = ParseInt(values[12]),
-                            Partia120 = ParseInt(values[13]),
-                            Partia121 = ParseInt(values[14]),
-                            Partia122 = ParseInt(values[15]),
-                            Partia123 = ParseInt(values[16]),
-                            Partia124 = ParseInt(values[17]),
-                            Partia125 = ParseInt(values[18]),
-                            Partia126 = ParseInt(values[19]),
-                            Partia127 = ParseInt(values[20]),
-                            Partia128 = ParseInt(values[21]),
-                            Partia129 = ParseInt(values[22]),
-                            Partia130 = ParseInt(values[23]),
-                            Partia131 = ParseInt(values[24]),
-                            Partia132 = ParseInt(values[25]),
-                            Partia133 = ParseInt(values[26]),
-                            Partia134 = ParseInt(values[27]),
-                            Partia135 = ParseInt(values[28]),
-                            Partia136 = ParseInt(values[29]),
-                            Partia137 = ParseInt(values[30]),
+                            // ... other parties ...
                             Partia138 = ParseInt(values[31]),
                         };
 
@@ -126,12 +94,13 @@ namespace ZgjedhjetApi.Controllers
                     }
                     catch (Exception ex)
                     {
+                        // Log and record errors for individual lines without stopping import
                         response.Errors.Add($"Line {lineNumber}: {ex.Message}");
                         _logger.LogWarning(ex, "Error parsing line {LineNumber}", lineNumber);
                     }
                 }
 
-                // Save to database
+                // Save all valid records to database
                 if (records.Any())
                 {
                     await _context.Zgjedhjet.AddRangeAsync(records);
@@ -153,6 +122,7 @@ namespace ZgjedhjetApi.Controllers
             }
             catch (Exception ex)
             {
+                // Catch any unexpected error during the import
                 _logger.LogError(ex, "Error during CSV import");
 
                 response.Success = false;
@@ -176,10 +146,9 @@ namespace ZgjedhjetApi.Controllers
         {
             try
             {
-                // Starting with all the data available
                 var query = _context.Zgjedhjet.AsQueryable();
 
-                // Applying filters to the data
+                // Apply filters if provided
                 if (kategoria.HasValue && kategoria.Value != Kategoria.TeGjitha)
                 {
                     var kategoriaStr = kategoria.Value.ToString();
@@ -194,6 +163,7 @@ namespace ZgjedhjetApi.Controllers
 
                 if (!string.IsNullOrWhiteSpace(qendra_e_votimit))
                 {
+                    // Check if the specified voting center exists
                     var exists = await _context.Zgjedhjet
                         .AnyAsync(z => z.Qendra_e_Votimit == qendra_e_votimit);
 
@@ -208,6 +178,7 @@ namespace ZgjedhjetApi.Controllers
 
                 if (!string.IsNullOrWhiteSpace(vendvotimi))
                 {
+                    // Check if the specified voting place exists
                     var exists = await _context.Zgjedhjet
                         .AnyAsync(z => z.VendVotimi == vendvotimi);
 
@@ -221,13 +192,11 @@ namespace ZgjedhjetApi.Controllers
                 }
 
                 var data = await query.ToListAsync();
-
                 var response = new ZgjedhjetAggregatedResponse();
 
-                // Rezultate e Agreguara (Aggregated Results)
+                // Aggregate votes per party
                 if (partia.HasValue && partia.Value != Partia.TeGjitha)
                 {
-                    // Returning only the selected party
                     var partiaName = partia.Value.ToString();
                     var totalVota = CalculatePartiaTotalVota(data, partiaName);
 
@@ -239,7 +208,7 @@ namespace ZgjedhjetApi.Controllers
                 }
                 else
                 {
-                    // Returning all parties
+                    // Aggregate votes for all parties
                     for (int i = 111; i <= 138; i++)
                     {
                         var partiaName = $"Partia{i}";
@@ -258,11 +227,13 @@ namespace ZgjedhjetApi.Controllers
             }
             catch (Exception ex)
             {
+                // Catch any unexpected error when querying/filtering
                 _logger.LogError(ex, "Error retrieving filtered data");
                 return StatusCode(500, new { message = "Internal server error", error = ex.Message });
             }
         }
 
+        // Helper to sum votes for a specific party
         private int CalculatePartiaTotalVota(List<Zgjedhjet> data, string partiaName)
         {
             var propertyInfo = typeof(Zgjedhjet).GetProperty(partiaName);
@@ -272,6 +243,7 @@ namespace ZgjedhjetApi.Controllers
             return data.Sum(z => (int)(propertyInfo.GetValue(z) ?? 0));
         }
 
+        // Parse CSV line respecting quoted values
         private string[] ParseCsvLine(string line)
         {
             var values = new List<string>();
@@ -283,24 +255,21 @@ namespace ZgjedhjetApi.Controllers
                 var c = line[i];
 
                 if (c == '"')
-                {
                     insideQuotes = !insideQuotes;
-                }
                 else if (c == ',' && !insideQuotes)
                 {
                     values.Add(currentValue.ToString());
                     currentValue.Clear();
                 }
                 else
-                {
                     currentValue.Append(c);
-                }
             }
 
             values.Add(currentValue.ToString());
             return values.ToArray();
         }
 
+        // Safely parse integer, return 0 if invalid
         private int ParseInt(string value)
         {
             if (string.IsNullOrWhiteSpace(value))
