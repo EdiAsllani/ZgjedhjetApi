@@ -1,4 +1,19 @@
-﻿namespace ZgjedhjetApi.Controllers
+﻿using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+using ZgjedhjetApi.Data;
+using ZgjedhjetApi.Enums;
+using ZgjedhjetApi.Models.DTOs;
+using ZgjedhjetApi.Models.Entities;
+
+namespace ZgjedhjetApi.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
